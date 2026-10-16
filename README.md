@@ -11,6 +11,46 @@
 整改证据、同点比较、适用边界和复验步骤见
 [离线误差整改报告](captures/offline_error_remediation/report.md)。
 
+## 项目结构 (2026-10-16 重构为包)
+
+代码已整理为 `scandic/` 包，运行一律在**项目根**执行 `python -m <模块路径>`：
+
+```
+scandic/
+  paths.py            项目路径与源码溯源的唯一来源
+  dic_engine.py       实时三维 DIC 核心引擎
+  hardware/           dahua_cam · zdt_motor · mvsdk/(相机 SDK)
+  calibration/        stereo_calibrate · calib_capture
+  capture/            scan_capture · capture_static_station · resume_reference_scan
+  processing/         scan_pipeline · precision_scan_pipeline · precise_match ·
+                      stereo_temporal · offline_dic · camera_motion · scan_report ·
+                      stitch · strain_field · scan_process · process_static_station
+  gui/                calib_gui · live_dic_gui · focus_assist
+  diagnostics/        diagnose_epipolar · diagnose_camera_motion ·
+                      diagnose_calib_live · reset_trigger
+tests/                42 项回归
+legacy/               旧单相机广角全景管线(ALI121 设备)
+archive/              退役的一次性过程脚本(历史留档)
+reference/            硬件手册 PDF / CAD / MVviewer 安装包(不入库)
+captures/             采集数据与结果(不入库)
+```
+
+主要入口命令（旧 `python X.py` → 新 `-m` 形式）：
+
+| 用途 | 命令 |
+|---|---|
+| 双目标定 GUI | `python -m scandic.gui.calib_gui` |
+| 实时三维 DIC | `python -m scandic.gui.live_dic_gui` |
+| 基准/变形扫描 | `python -m scandic.capture.scan_capture ref/def ...` |
+| 扫描离线处理 | `python -m scandic.processing.scan_process <目录>` |
+| 应变场(Green-Lagrange) | `python -m scandic.processing.strain_field <precision_results>` |
+| 立体标定(命令行) | `python -m scandic.calibration.stereo_calibrate` |
+| 固定站处理 | `python -m scandic.processing.process_static_station` |
+| 回归测试 | `python -m unittest tests.test_precision tests.test_scan_validation tests.test_scan_pipeline tests.test_static_station` |
+| 旧设备全景 | `python -m legacy.scan_gui` / `python -m legacy.headless_scan` |
+
+下文命令块已按此更新；正文中 `foo.py` 指模块名，实际运行路径见上表。
+
 ## 环境
 
 本机核验：Python 3.10.11、`opencv-python-headless` 4.11.0.86、`numpy` 2.1.2、
@@ -52,7 +92,7 @@ BK24404AAK00007 / BK06664AAK00010。SDK 为 MV Viewer 自带 Python 接口:
 ## 实时三维 DIC (live_dic_gui.py / dic_engine.py)
 
 ```
-python live_dic_gui.py    # 打开相机 -> 设为参考 -> 变形, 云图实时刷新
+python -m scandic.gui.live_dic_gui    # 打开相机 -> 设为参考 -> 变形, 云图实时刷新
 ```
 
 - **不做平面立体校正(unrectified)路线**: 旧构型长焦(FOV~15°)+汇聚角 33°
@@ -107,9 +147,9 @@ python live_dic_gui.py    # 打开相机 -> 设为参考 -> 变形, 云图实时
 范式: 基准扫描 -> 加载变形 -> 复扫相同站位 -> 逐站立体 DIC -> 拼整板。
 
 ```
-python scan_capture.py ref --seek-edge --auto-edge --overlap 0.6
-python scan_capture.py def --plan captures/scan_ref_xxx
-python scan_process.py captures/scan_def_xxx
+python -m scandic.capture.scan_capture ref --seek-edge --auto-edge --overlap 0.6
+python -m scandic.capture.scan_capture def --plan captures/scan_ref_xxx
+python -m scandic.processing.scan_process captures/scan_def_xxx
 ```
 
 - 最终编排：先在当前位置小位移探测 px/脉冲及方向；反向按 30% 视场
@@ -140,9 +180,9 @@ python scan_process.py captures/scan_def_xxx
 - SIFT极线中位超过0.8px时，改为先做固定网格子区/ECC复核，不直接判重标。
   复核匹配不使用F约束；至少100个可靠子区，中位≤0.8px且P95≤1.5px才通过。
   未改变中位门槛，也未从散斑平面重新拟合标定来消除误差。
-- 几何闸门中止且位置已知时，可用 `python resume_reference_scan.py <ref或def目录>` 续扫；
+- 几何闸门中止且位置已知时，可用 `python -m scandic.capture.resume_reference_scan <ref或def目录>` 续扫；
   启动前核对编码器、曝光和双目图像，备份候选图与元数据，不覆盖已接受站位。
-- 回归验证：`python -X utf8 -B -m unittest test_precision test_scan_validation test_scan_pipeline test_static_station -v`，
+- 回归验证：`python -X utf8 -B -m unittest tests.test_precision tests.test_scan_validation tests.test_scan_pipeline tests.test_static_station -v`，
   42项通过，包含非零位移保持、锚点补偿不吞掉真实变形、起点ROI与模拟硬件异常处理。
 - 处理端：`scan_process.py` 调用 `precision_scan_pipeline.py`。
   `precise_match.py` 做三次样条插值迭代匹配，联合消除局部亮度增益/偏置影响。
@@ -195,13 +235,13 @@ U/V/W绝对P95为0.568/0.587/2.668μm；这是有条件的诊断，不能移用�
 
 ```powershell
 # 保存的14站数据：新目录重算，完全离线
-python -X utf8 -B -u scan_process.py captures/scan_def_20260920_194648 --output precision_scan_rerun
+python -X utf8 -B -u -m scandic.processing.scan_process captures/scan_def_20260920_194648 --output precision_scan_rerun
 
 # 使用本次已核验缓存，可省去重复的站内匹配；输出目录必须尚不存在
-python -X utf8 -B -u scan_process.py captures/scan_def_20260920_194648 --cache captures/scan_def_20260920_194648/precision_results --output precision_scan_cached_rerun
+python -X utf8 -B -u -m scandic.processing.scan_process captures/scan_def_20260920_194648 --cache captures/scan_def_20260920_194648/precision_results --output precision_scan_cached_rerun
 
 # 固定站静止分析：该批几何失败，必须显式标为诊断
-python -X utf8 -B -u process_static_station.py captures/static_station11_20260920_203311 --diagnostic --output precision_static_rerun
+python -X utf8 -B -u -m scandic.processing.process_static_station captures/static_station11_20260920_203311 --diagnostic --output precision_static_rerun
 ```
 
 固定站处理默认 `--matcher precise`；`--matcher legacy` 仅用于对照。
@@ -228,7 +268,7 @@ python -X utf8 -B -u process_static_station.py captures/static_station11_2026092
 ## 旧设备流程: 实时全景扫描(scan_gui.py)
 
 ```
-python scan_gui.py
+python -m legacy.scan_gui
 ```
 
 1. 相机序号选 **1**（外接 UVC 相机, 1920×1080 @ ~18fps; 0 是另一个 720p 设备），点“打开相机”。
@@ -259,7 +299,7 @@ python scan_gui.py
 ## 无界面自动扫描(headless_scan.py) — 已实拍验证
 
 ```
-python headless_scan.py            # 启动后推滑台, 推完停 8 秒自动结束
+python -m legacy.headless_scan            # 启动后推滑台, 推完停 8 秒自动结束
 ```
 
 自动: 锁曝光、去畸变、中央裁剪、等待运动、位移不再变化 8 秒后收尾、
@@ -273,9 +313,9 @@ python headless_scan.py            # 启动后推滑台, 推完停 8 秒自动�
 先录后拼（`capture_gui.py` 录制 → `stitch.py` 拼接), 或对实时扫描存下的关键帧重拼:
 
 ```
-python stitch.py captures/scan_xxxx -o pano.png --flat        # 重拼关键帧
-python capture_gui.py                                          # 纯录制
-python stitch.py captures/run_xxxx -o panorama.png --flat      # 离线拼接
+python -m scandic.processing.stitch captures/scan_xxxx -o pano.png --flat   # 重拼关键帧
+python -m legacy.capture_gui                                                # 纯录制
+python -m scandic.processing.stitch captures/run_xxxx -o panorama.png --flat # 离线拼接
 ```
 
 `stitch.py` 参数: `--flat` 平场校正(推荐) / `--gray` 灰度输出 / `--min-shift` 静止阈值 /
