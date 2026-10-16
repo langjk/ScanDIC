@@ -1,0 +1,18 @@
+# 采集数据与结果(大, 不入库)
+captures/
+
+# 第三方查看器/安装包与大二进制
+MVviewer_2.2.3_Build20200309/
+MVviewer_2.2.3_Build20200309.zip
+reference/
+*.zip
+
+# Python 缓存与临时
+__pycache__/
+*.pyc
+tmp/
+.pytest_cache/
+
+# 编辑器
+.vscode/
+.idea/
